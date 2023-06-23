@@ -1,65 +1,56 @@
 package com.github.dhoard.orders.kafka.producer;
 
-import com.google.gson.JsonObject;
-import org.apache.kafka.clients.producer.Callback;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.serialization.StringSerializer;
+import io.confluent.kafka.serializers.json.KafkaJsonSchemaSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Instant;
-import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
-import java.util.Random;
 import java.util.UUID;
-import java.util.concurrent.Future;
 
 public class Main {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Main.class);
 
-    private static final String BOOTSTRAP_SERVERS = "cp-7-2-x:9092";
+    private static final String SCHEMA_REGISTRY_URL_CONFIG = "schema.registry.url";
 
+    // Configuration
+    private static final String BOOTSTRAP_SERVERS = "cp-7-4-x:9092";
+    private static final String SCHEMA_REGISTRY_URL = "http://cp-7-4-x:8081";
+    private static final String ACKS_CONFIG = "all";
     private static final String TOPIC = "order";
-
-    private static final Random RANDOM = new Random();
 
     public static void main(String[] args) throws Exception {
         new Main().run(args);
     }
 
     public void run(String[] args) throws Exception {
-        KafkaProducer<String, String> kafkaProducer = null;
+        KafkaProducer<String, OrderEvent> kafkaProducer = null;
 
         try {
             Properties properties = new Properties();
 
-            properties.setProperty(
-                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, BOOTSTRAP_SERVERS);
-
-            properties.setProperty(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
-                StringSerializer.class.getName());
-
-            properties.setProperty(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
-                StringSerializer.class.getName());
-
-            properties.setProperty(ProducerConfig.ACKS_CONFIG, "all");
+            properties.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, BOOTSTRAP_SERVERS);
+            properties.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+            properties.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, KafkaJsonSchemaSerializer.class.getName());
+            properties.put(ProducerConfig.ACKS_CONFIG, ACKS_CONFIG);
+            properties.put(SCHEMA_REGISTRY_URL_CONFIG, SCHEMA_REGISTRY_URL);
 
             Map<Integer, String> facilityMap = new HashMap<>();
-            for (int i = 0; i < 10; i++) {
+            for (int i = 0; i < 1000000; i++) {
                 facilityMap.put(i, "facility-" + i);
             }
 
             kafkaProducer = new KafkaProducer<>(properties);
 
-            for (int i = 0; i < 1000000; i++) {
+            for (int i = 0; i < 1000; i++) {
                 try {
-                    Thread.sleep(randomLong(1, 100));
+                    Thread.sleep(randomLong(1, 1000));
                 } catch (Throwable t) {
                     // DO NOTHING
                 }
@@ -67,31 +58,33 @@ public class Main {
                 String orderId = UUID.randomUUID().toString();
                 String facilityId = facilityMap.get(randomInt(0, 9));
 
-                JsonObject jsonObject = new JsonObject();
-                jsonObject.addProperty("event.type", "order.placed");
-                jsonObject.addProperty("event.timestamp", System.currentTimeMillis());
-                jsonObject.addProperty("facility.id", facilityId);
-                jsonObject.addProperty("order.id", orderId);
+                OrderEvent orderEvent =
+                        new OrderEvent(
+                                "order.placed",
+                                System.currentTimeMillis(),
+                                orderId,
+                                facilityId);
 
-                LOGGER.info(String.format("event [%s]", jsonObject));
+                LOGGER.info(String.format("event [%s]", orderEvent));
 
-                kafkaProducer.send(new ProducerRecord<>(TOPIC, null, jsonObject.toString()));
+                kafkaProducer.send(new ProducerRecord<>(TOPIC, orderId, orderEvent));
 
                 try {
-                    Thread.sleep(randomLong(1, 100));
+                    Thread.sleep(randomLong(1, 1000));
                 } catch (Throwable t) {
                     // DO NOTHING
                 }
 
-                jsonObject = new JsonObject();
-                jsonObject.addProperty("event.type", "order.fulfilled");
-                jsonObject.addProperty("event.timestamp", System.currentTimeMillis());
-                jsonObject.addProperty("facility.id", facilityId);
-                jsonObject.addProperty("order.id", orderId);
+                orderEvent =
+                        new OrderEvent(
+                                "order.fulfilled",
+                                System.currentTimeMillis(),
+                                orderId,
+                                facilityId);
 
-                LOGGER.info(String.format("event [%s]", jsonObject));
+                LOGGER.info(String.format("event [%s]", orderEvent));
 
-                kafkaProducer.send(new ProducerRecord<>(TOPIC, null, jsonObject.toString()));
+                kafkaProducer.send(new ProducerRecord<>(TOPIC, orderId, orderEvent));
 
                 try {
                     Thread.sleep(randomLong(1, 500));
